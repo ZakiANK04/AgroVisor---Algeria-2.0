@@ -1,6 +1,6 @@
 # 🌾 AgroVisor - AI-Powered Agricultural Advisory Platform
 
-**AgroVisor** is an intelligent agricultural advisory system that empowers farmers with data-driven insights for crop selection, pricing predictions, yield forecasting, and risk assessment. Built with modern web technologies and machine learning, it provides personalized recommendations based on farm location, soil type, weather conditions, and market data.
+**AgroVisor** is an intelligent agricultural advisory system that empowers farmers with data-driven insights for crop selection, pricing predictions, yield forecasting , and risk assessment. Built with modern web technologies and machine learning, it provides personalized recommendations based on farm location, soil type, weather conditions, and market data.
 
 ---
 
