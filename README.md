@@ -2,6 +2,7 @@
 
 **AgroVisor** is an intelligent agricultural advisory system that empowers farmers with data-driven insights for crop selection, pricing predictions, yield forecasting , and risk assessment. Built with modern web technologies and machine learning, it provides personalized recommendations based on farm location, soil type, weather conditions, and market data.
 
+![Alt text](https://github.com/ZakiANK04/AgroVisor---Algeria-2.0/blob/main/Screenshot%202026-03-02%20205723.png)
 ---
 
 ## 📋 Table of Contents
