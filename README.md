@@ -1,701 +1,357 @@
-# 🌾 AgroVisor - AI-Powered Agricultural Advisory Platform
+<div align="center">
 
-**AgroVisor** is an intelligent agricultural advisory system that empowers farmers with data-driven insights for crop selection, pricing predictions, yield forecasting , and risk assessment. Built with modern web technologies and machine learning, it provides personalized recommendations based on farm location, soil type, weather conditions, and market data.
+<img src="frontend/public/logo.png" alt="AgroVisor" height="110" />
 
-![Alt text](https://github.com/ZakiANK04/AgroVisor---Algeria-2.0/blob/main/Screenshot%202026-03-02%20205723.png)
+# 🌾 AgroVisor Algeria
+
+### AI crop advisory for Algerian farmers — in Arabic, French, and English
+
+*Three XGBoost models turn a farm's region, soil, and season into a price forecast, a yield estimate, and an oversupply risk score — then rank which crops are actually worth planting.*
+
+<br/>
+
+[![Django](https://img.shields.io/badge/Django_5.2-092E20?style=for-the-badge&logo=django&logoColor=white)](https://djangoproject.com)
+[![DRF](https://img.shields.io/badge/DRF-A30000?style=for-the-badge&logo=django&logoColor=white)](https://django-rest-framework.org)
+[![XGBoost](https://img.shields.io/badge/XGBoost-337AB7?style=for-the-badge&logo=&logoColor=white)](https://xgboost.ai)
+[![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
+[![Tailwind](https://img.shields.io/badge/Tailwind_4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Leaflet](https://img.shields.io/badge/Leaflet-199900?style=for-the-badge&logo=leaflet&logoColor=white)](https://leafletjs.com)
+
+[![Demo](https://img.shields.io/badge/▶_Live_demo-test--alg2--0.vercel.app-000000?style=flat-square)](https://test-alg2-0.vercel.app)
+[![Models](https://img.shields.io/badge/Models-3_XGBoost-337AB7?style=flat-square)](#-machine-learning)
+[![Dataset](https://img.shields.io/badge/Training_rows-200k+-informational?style=flat-square)](#-machine-learning)
+[![i18n](https://img.shields.io/badge/Languages-EN_·_FR_·_AR_(RTL)-success?style=flat-square)](#-internationalisation)
+
+<br/>
+
+<img src="Screenshot%202026-03-02%20205723.png" alt="AgroVisor dashboard" width="880"/>
+
+</div>
+
 ---
 
-## 📋 Table of Contents
+## The problem
 
-- [Features](#-features)
-- [Technology Stack](#-technology-stack)
-- [Prerequisites](#-prerequisites)
-- [Installation Guide](#-installation-guide)
-- [Configuration](#-configuration)
-- [Usage](#-usage)
-- [Project Structure](#-project-structure)
-- [API Documentation](#-api-documentation)
-- [Machine Learning Model](#-machine-learning-model)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
+An Algerian smallholder decides what to plant with three unknowns: what the crop will sell for at harvest, how much land will actually yield, and whether every other farm in the wilaya is planting the same thing. Get the third one wrong and a good harvest becomes a price collapse.
+
+AgroVisor makes all three predictable. A farmer registers a farm — location, size, soil type — and gets a ranked list of crops with a forecast price in DA/kg, an expected yield in tons/ha, and an oversupply risk percentage, plus contextual advice generated in their own language.
+
+---
+
+## Why this project is worth a look
+
+| | |
+|---|---|
+| **Three models, one decision** | Risk classification, price regression, and yield regression are trained separately and combined into a single recommendation score with a risk threshold — not one model asked to do everything |
+| **Genuine RTL support** | Full Arabic localisation with right-to-left layout, including translated region names, crop names, and soil types — not just a string file swap |
+| **Region-aware defaults** | Soil type auto-detects from wilaya via `region_soil_mapping.csv`, so a farmer who doesn't know their soil classification can still get a recommendation |
+| **The feedback loop is built in** | Predictions are written back to `model_results.csv` with duplicate prevention, creating a retraining corpus from real usage |
+| **LLM as a layer, not the product** | OpenAI generates the human-readable advice *around* the model output. The numbers come from XGBoost, not from a language model |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    subgraph FE["React 19 + Vite"]
+        L["Landing"]
+        A["Auth — JWT"]
+        DSH["Dashboard<br/>Recharts · Leaflet"]
+        CB["Floating chatbot"]
+    end
+
+    subgraph BE["Django 5.2 + DRF"]
+        AU["SimpleJWT auth"]
+        FM["Farm CRUD"]
+        RE["Recommendation engine"]
+        WA["Weather service"]
+        AI["AI advice generator"]
+    end
+
+    subgraph ML["model_predictor.py"]
+        M1["XGBClassifier<br/>oversupply risk"]
+        M2["XGBRegressor<br/>price DA/ton"]
+        M3["XGBRegressor<br/>yield t/ha"]
+    end
+
+    subgraph DB["Data"]
+        SQ[("SQLite<br/>User · Farm · Region · Crop")]
+        CSV["agri_dataset.csv<br/>200k+ rows"]
+        PKL["agri_advisor_v5.pkl"]
+    end
+
+    FE -->|"REST + Bearer"| BE
+    AU --> SQ
+    FM --> SQ
+    RE --> ML --> PKL
+    RE --> WA
+    RE --> AI -->|"OpenAI"| OUT["Localised advice<br/>EN · FR · AR"]
+    CSV -.->|"train_model.py"| PKL
+    RE -.->|"save predictions"| CSV2["model_results.csv"]
+```
+
+---
+
+## 🤖 Machine learning
+
+Three XGBoost models share one feature set and one preprocessing pipeline, persisted together as `agri_advisor_v5.pkl`.
+
+| Model | Type | Output | Used for |
+|---|---|---|---|
+| Risk classifier | `XGBClassifier` | Oversupply risk, 0–100 % | Filtering crops above the risk threshold |
+| Price regressor | `XGBRegressor` | DA/ton → converted to DA/kg | Revenue projection |
+| Yield regressor | `XGBRegressor` | tons/ha | Production planning |
+
+<details open>
+<summary><b>Feature set</b></summary>
+
+<br/>
+
+| Feature | Type | Source |
+|---|---|---|
+| Region (wilaya) | Categorical | Farm profile |
+| Soil type | Categorical | Farm profile, auto-detected from region |
+| Crop | Categorical | Candidate crop |
+| Month | Numeric | Planting / harvest window |
+| Year | Numeric | Season |
+| Planted area | Numeric, ha | Farm profile |
+| Temperature | Numeric, °C | Weather service |
+| Rainfall | Numeric, mm | Weather service |
+
+</details>
+
+<details>
+<summary><b>Retraining</b></summary>
+
+```bash
+cd backend
+python train_model.py
+```
+
+Loads `backend/data/agri_dataset.csv`, encodes and scales features, trains all three models, and writes `backend/models/agri_advisor_v5.pkl`.
+
+Retrain whenever new rows land in `agri_dataset.csv` — including the rows the app itself writes back from live predictions.
+
+> 📌 **Add your evaluation numbers here.** A short table with risk classifier accuracy/F1 and price/yield RMSE or MAE would make this section considerably stronger for a technical reader.
+
+</details>
 
 ---
 
 ## ✨ Features
 
-### 🎯 Core Functionality
+<details open>
+<summary><b>Advisory core</b></summary>
 
-- **🤖 AI-Powered Crop Recommendations**
-  - Personalized recommendations based on farm conditions
-  - Analysis of soil type, weather, and market data
-  - Risk-based recommendation system (oversupply risk threshold)
+<br/>
 
-- **💰 Price Prediction**
-  - ML model predicts crop prices in DA/kg
-  - Helps farmers make informed pricing decisions
-  - Based on historical market data and trends
+- **Crop recommendations** ranked from farm conditions, soil, weather, and market data
+- **Price forecasting** in DA/kg
+- **Yield forecasting** in tons/ha
+- **Oversupply risk scoring** with a threshold that filters recommendations rather than just displaying a number
+- **Intended-crop analysis** — a farmer's own plan is evaluated and returned with a confidence level and specific advice
 
-- **📊 Yield Forecasting**
-  - Predicts expected yield per hectare (tons/ha)
-  - Considers soil conditions, weather, and crop type
-  - Helps in production planning
+</details>
 
-- **⚠️ Oversupply Risk Assessment**
-  - Analyzes market conditions to identify oversupply risks
-  - Risk percentage calculation for each crop
-  - Threshold-based recommendation system
+<details>
+<summary><b>Farm management and UI</b></summary>
 
-- **🌍 Multi-Language Support**
-  - Full support for **English**, **French**, and **Arabic**
-  - RTL (Right-to-Left) support for Arabic
-  - Translated UI elements, regions, crops, and soil types
+<br/>
 
-- **📱 Interactive Dashboard**
-  - Comprehensive dashboard with real-time data
-  - Interactive charts (Pie charts and Bar charts)
-  - Detailed analysis tables
-  - Farm location mapping with Leaflet
+- Multiple farms per account, with update-in-place when name, location, and owner match
+- Automatic soil-type detection from region
+- Leaflet map with farm location and OpenStreetMap geocoding
+- Recharts pie and bar charts for crop scores and prices
+- Framer Motion transitions, mobile-first Tailwind layout
+- Prediction export to CSV with duplicate prevention
 
-- **🏡 Farm Management**
-  - Create and manage multiple farms
-  - Update farm details (name, location, size, soil type)
-  - Auto-detection of soil type based on region
-  - Farm location visualization on map
-
-- **💾 Data Export**
-  - Save model predictions to CSV
-  - Duplicate prevention system
-  - Data collection for future model training
-
-### 🎨 User Interface Features
-
-- **Responsive Design**: Mobile-first design that works on all devices
-- **Modern UI**: Clean, intuitive interface with Tailwind CSS
-- **Interactive Charts**: Visual representation of crop scores and prices
-- **Real-time Updates**: Dynamic recommendations based on current data
-- **Smooth Animations**: Enhanced user experience with Framer Motion
+</details>
 
 ---
 
-## 🛠️ Technology Stack
+## 🌍 Internationalisation
 
-### Backend
+| Language | Layout | Coverage |
+|---|---|---|
+| English | LTR | Full UI, regions, crops, soil types |
+| Français | LTR | Full UI, regions, crops, soil types |
+| العربية | **RTL** | Full UI, regions, crops, soil types |
 
-- **Framework**: Django 5.2.8 with Django REST Framework
-- **Authentication**: Simple JWT (JSON Web Tokens)
-- **Database**: SQLite3 (easily configurable for PostgreSQL/MySQL)
-- **Machine Learning**: 
-  - XGBoost (XGBClassifier, XGBRegressor)
-  - scikit-learn for preprocessing
-  - pandas for data manipulation
-- **AI Integration**: OpenAI API for contextual advice generation
-- **Additional Libraries**: 
-  - joblib for model persistence
-  - python-dotenv for environment variables
-  - requests for API calls
-
-### Frontend
-
-- **Framework**: React 19 with Vite
-- **Styling**: Tailwind CSS 4
-- **Charts**: Recharts for data visualization
-- **Maps**: Leaflet with react-leaflet
-- **Routing**: React Router DOM v7
-- **State Management**: React Context API
-- **HTTP Client**: Axios
-- **Animations**: Framer Motion
+Translations live in `frontend/src/contexts/LanguageContext.jsx`. The `lang` query parameter is passed through to the recommendation endpoint so that AI-generated advice comes back in the same language as the interface.
 
 ---
 
-## 📦 Prerequisites
+## 🔌 API
 
-Before you begin, ensure you have the following installed:
+<details open>
+<summary><b>Authentication</b></summary>
 
-- **Python**: 3.8 or higher
-- **Node.js**: 16 or higher
-- **npm** or **yarn**: Package manager
-- **Git**: Version control
+| Method | Endpoint | Body / Headers |
+|---|---|---|
+| `POST` | `/api/auth/register/` | `{ email, password, first_name, last_name }` |
+| `POST` | `/api/auth/login/` | `{ email, password }` → access + refresh tokens |
+| `GET` | `/api/auth/profile/` | `Authorization: Bearer <token>` |
 
----
+</details>
 
-## 🚀 Installation Guide
+<details open>
+<summary><b>Farms and recommendations</b></summary>
 
-### Step 1: Clone the Repository
+| Method | Endpoint | Notes |
+|---|---|---|
+| `GET` | `/api/farms/` | List the authenticated user's farms |
+| `POST` | `/api/farms/` | `{ name, location, size_hectares, soil_type, intended_crop }` |
+| `GET` | `/api/farms/{id}/` | Farm detail |
+| `PUT` | `/api/farms/{id}/` | Update in place |
+| `GET` | `/api/recommendations/{farm_id}/?lang={en\|fr\|ar}` | Ranked crops + intended-crop analysis |
+| `GET` | `/api/regions/` | Regions with coordinates |
+| `GET` | `/api/crops/` | Crop catalogue |
+| `POST` | `/api/save-model-result/{farm_id}/` | Persist a prediction for retraining |
 
-```bash
-git clone https://github.com/ZakiANK04/TestAlg2.0.git
-cd TestAlg2.0
+</details>
+
+<details>
+<summary><b>Sample recommendation response</b></summary>
+
+```json
+{
+  "recommendations": [ "..." ],
+  "intended_crop_analysis": {
+    "crop_name": "Wheat",
+    "is_recommended": true,
+    "confidence": "high",
+    "recommendation": "...",
+    "advice": [ "..." ],
+    "details": {
+      "price_forecast": 123.45,
+      "yield_per_ha": 5.67,
+      "oversupply_risk": 12.3
+    }
+  }
+}
 ```
 
-### Step 2: Backend Setup
+</details>
 
-1. **Navigate to backend directory**:
-```bash
-cd backend
-```
+---
 
-2. **Create a virtual environment** (recommended):
+## 🚀 Installation
+
+<details open>
+<summary><b>Backend</b></summary>
+
 ```bash
-# On Windows
+git clone https://github.com/ZakiANK04/AgroVisor---Algeria-2.0.git
+cd AgroVisor---Algeria-2.0/backend
+
 python -m venv venv
-venv\Scripts\activate
+source venv/bin/activate          # Windows: venv\Scripts\activate
 
-# On Linux/Mac
-python3 -m venv venv
-source venv/bin/activate
-```
-
-3. **Install Python dependencies**:
-```bash
 pip install -r requirements.txt
-```
-
-   Or install manually:
-```bash
-pip install django==5.2.8 djangorestframework djangorestframework-simplejwt django-cors-headers xgboost pandas scikit-learn joblib numpy openai requests python-dotenv
-```
-
-4. **Run database migrations**:
-```bash
 python manage.py migrate
-```
-
-5. **Create a superuser** (optional, for admin access):
-```bash
-python manage.py createsuperuser
-```
-
-6. **Load initial data from CSV files**:
-```bash
-python manage.py update_from_csv
-```
-
-   This command:
-   - Loads regions from `backend/data/region_soil_mapping.csv`
-   - Loads crops from `backend/data/agri_dataset.csv`
-
-7. **Train the ML model**:
-```bash
-python train_model.py
-```
-
-   This will:
-   - Load training data from `backend/data/agri_dataset.csv`
-   - Train XGBoost models for risk, price, and yield prediction
-   - Save the model to `backend/models/agri_advisor_v5.pkl`
-
-### Step 3: Frontend Setup
-
-1. **Navigate to frontend directory**:
-```bash
-cd ../frontend
-```
-
-2. **Install Node.js dependencies**:
-```bash
-npm install
-```
-
-3. **Start the development server**:
-```bash
-npm run dev
-```
-
-   The frontend will be available at `http://localhost:5173`
-
----
-
-## ⚙️ Configuration
-
-### Backend Configuration
-
-The main configuration file is `backend/core/settings.py`. Key settings:
-
-- **Database**: SQLite3 by default (configured in `DATABASES`)
-- **CORS**: Allowed origins in `CORS_ALLOWED_ORIGINS`
-- **JWT**: Token settings in `SIMPLE_JWT`
-- **ML Model Path**: `models/agri_advisor_v5.pkl`
-
-### Environment Variables (Optional)
-
-Create a `.env` file in the `backend` directory for sensitive settings:
-
-```env
-SECRET_KEY=your-secret-key-here
-DEBUG=True
-ALLOWED_HOSTS=localhost,127.0.0.1
-OPENAI_API_KEY=your-openai-api-key-here
-```
-
-Then load it in `settings.py`:
-```python
-from dotenv import load_dotenv
-load_dotenv()
-```
-
-### Frontend Configuration
-
-The frontend API endpoint is configured in components. Default:
-- Backend API: `http://127.0.0.1:8000`
-- Frontend: `http://localhost:5173`
-
-To change the API endpoint, update the axios base URL in:
-- `frontend/src/contexts/AuthContext.jsx`
-- `frontend/src/pages/Dashboard.jsx`
-- Other components that make API calls
-
----
-
-## 🎯 Usage
-
-### Starting the Application
-
-1. **Start the Backend Server**:
-```bash
-cd backend
+python manage.py update_from_csv   # seeds regions + crops
+python train_model.py              # trains and saves agri_advisor_v5.pkl
 python manage.py runserver
 ```
-   Backend runs on `http://127.0.0.1:8000`
 
-2. **Start the Frontend Server** (in a new terminal):
-```bash
-cd frontend
-npm run dev
-```
-   Frontend runs on `http://localhost:5173`
+</details>
 
-3. **Access the Application**:
-   - Open your browser and navigate to `http://localhost:5173`
-   - You'll see the landing page
-
-### User Workflow
-
-1. **Registration/Login**
-   - Click "Sign Up" to create a new account
-   - Accept data usage terms
-   - Or click "Login" if you already have an account
-
-2. **Create a Farm**
-   - After logging in, you'll see the dashboard
-   - Click "Add New Farm" button
-   - Fill in farm details:
-     - Farm name
-     - Region (select from dropdown - auto-detects soil type)
-     - Size in hectares
-     - Soil type (auto-filled based on region)
-     - Intended crop (optional)
-
-3. **View Recommendations**
-   - Select a farm from the dropdown
-   - The system automatically generates recommendations
-   - View:
-     - Top recommendation with key metrics
-     - Price predictor (DA/kg)
-     - Yield forecast (tons/ha)
-     - Oversupply risk percentage
-
-4. **Analyze Data**
-   - Click "Charts & Detailed Analysis" to view:
-     - Pie chart showing top 3 crops by score
-     - Bar chart comparing prices
-     - Detailed analysis table with all recommendations
-
-5. **Crop Analysis**
-   - If you selected an intended crop, view detailed analysis:
-     - Recommendation status (Recommended/Not Recommended)
-     - Confidence level
-     - Model predictions (Price, Yield, Risk)
-     - AI-generated advice in your selected language
-
-6. **Accept Recommendation**
-   - Click "Accept the Suggestion" button
-   - This saves the model results to `data/model_results.csv`
-   - Duplicate prevention ensures no redundant entries
-
-7. **Update Farm Details**
-   - Click "Update Farm Details" button
-   - Modify farm information
-   - System updates existing farm if name and location match
-
-8. **View Farm Location**
-   - Farm location is displayed on an interactive map
-   - Uses Leaflet with OpenStreetMap
-   - Automatically zooms to the region
-
----
-
-## 📁 Project Structure
-
-```
-Hachkathon/
-├── backend/                          # Django backend
-│   ├── api/                         # Main app
-│   │   ├── models.py                # Database models (User, Farm, Region, Crop, etc.)
-│   │   ├── views.py                 # API views (Recommendations, Farms, Auth)
-│   │   ├── serializers.py           # DRF serializers
-│   │   ├── urls.py                  # URL routing
-│   │   ├── services/                # Business logic
-│   │   │   ├── model_predictor.py   # ML model loading & prediction
-│   │   │   ├── recommendation.py   # Recommendation engine
-│   │   │   ├── ai_advice_generator.py  # OpenAI integration
-│   │   │   └── weather_api.py       # Weather data
-│   │   └── management/commands/    # Django management commands
-│   │       ├── update_from_csv.py   # Update DB from CSV
-│   │       ├── seed_regions.py      # Seed regions
-│   │       └── seed_data.py         # Seed initial data
-│   ├── core/                        # Django project settings
-│   │   ├── settings.py              # Main configuration
-│   │   └── urls.py                  # Root URL config
-│   ├── data/                        # Data files
-│   │   ├── agri_dataset.csv        # Training dataset (200k+ rows)
-│   │   └── region_soil_mapping.csv  # Region to soil mapping
-│   ├── models/                      # Trained ML models
-│   │   └── agri_advisor_v5.pkl     # Saved XGBoost model
-│   ├── train_model.py              # Model training script
-│   ├── manage.py                   # Django management
-│   └── requirements.txt            # Python dependencies
-│
-├── frontend/                        # React frontend
-│   ├── src/
-│   │   ├── pages/                  # Page components
-│   │   │   ├── LandingPage.jsx     # Landing page
-│   │   │   ├── Login.jsx           # Login page
-│   │   │   ├── Signup.jsx          # Registration page
-│   │   │   └── Dashboard.jsx        # Main dashboard
-│   │   ├── components/             # Reusable components
-│   │   │   ├── FarmForm.jsx        # Update farm form
-│   │   │   ├── AddFarmForm.jsx    # Add new farm form
-│   │   │   ├── FarmMap.jsx         # Leaflet map component
-│   │   │   ├── FloatingChatbot.jsx # Chatbot component
-│   │   │   └── Toast.jsx          # Toast notifications
-│   │   ├── contexts/               # React contexts
-│   │   │   ├── AuthContext.jsx    # Authentication state
-│   │   │   └── LanguageContext.jsx # i18n translations
-│   │   ├── App.jsx                 # Main app component
-│   │   └── main.jsx               # Entry point
-│   ├── public/                     # Static files
-│   │   └── logo.png               # Application logo
-│   └── package.json               # Node dependencies
-│
-├── data/                           # Generated data
-│   └── model_results.csv          # Saved model predictions
-│
-└── README.md                      # This file
-```
-
----
-
-## 🔌 API Documentation
-
-### Authentication Endpoints
-
-- **POST** `/api/auth/register/` - Register a new user
-  - Body: `{ "email", "password", "first_name", "last_name" }`
-  - Returns: User data and JWT tokens
-
-- **POST** `/api/auth/login/` - Login user
-  - Body: `{ "email", "password" }`
-  - Returns: JWT access and refresh tokens
-
-- **GET** `/api/auth/profile/` - Get user profile
-  - Headers: `Authorization: Bearer <token>`
-  - Returns: User profile data
-
-### Farm Endpoints
-
-- **GET** `/api/farms/` - List user's farms
-  - Headers: `Authorization: Bearer <token>`
-  - Returns: Array of farm objects
-
-- **POST** `/api/farms/` - Create new farm
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ "name", "location", "size_hectares", "soil_type", "intended_crop" }`
-  - Returns: Created farm object
-
-- **GET** `/api/farms/{id}/` - Get farm details
-  - Headers: `Authorization: Bearer <token>`
-  - Returns: Farm object
-
-- **PUT** `/api/farms/{id}/` - Update farm
-  - Headers: `Authorization: Bearer <token>`
-  - Body: Farm data to update
-  - Returns: Updated farm object
-  - Note: Updates existing farm if name, location, and user match
-
-### Recommendation Endpoints
-
-- **GET** `/api/recommendations/{farm_id}/?lang={en|fr|ar}` - Get crop recommendations
-  - Headers: `Authorization: Bearer <token>`
-  - Query params: `lang` (optional, default: 'en')
-  - Returns: 
-    ```json
-    {
-      "recommendations": [...],
-      "intended_crop_analysis": {
-        "crop_name": "...",
-        "is_recommended": true/false,
-        "confidence": "high|medium|low",
-        "recommendation": "...",
-        "advice": [...],
-        "details": {
-          "price_forecast": 123.45,
-          "yield_per_ha": 5.67,
-          "oversupply_risk": 12.3
-        }
-      }
-    }
-    ```
-
-### Data Endpoints
-
-- **GET** `/api/regions/` - List all regions
-  - Returns: Array of region objects with coordinates
-
-- **GET** `/api/crops/` - List all crops
-  - Returns: Array of crop objects
-
-- **POST** `/api/save-model-result/{farm_id}/` - Save model prediction results
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ "crop", "price_forecast", "yield_per_ha", "oversupply_risk" }`
-  - Returns: Success message
-  - Note: Prevents duplicate entries
-
----
-
-## 🤖 Machine Learning Model
-
-### Model Architecture
-
-The system uses **XGBoost** models trained on historical agricultural data:
-
-1. **Risk Classifier** (XGBClassifier)
-   - Predicts oversupply risk percentage
-   - Binary classification converted to percentage
-
-2. **Price Regressor** (XGBRegressor)
-   - Predicts crop prices in DA/ton
-   - Converted to DA/kg in the API (divided by 1000)
-
-3. **Yield Regressor** (XGBRegressor)
-   - Predicts yield per hectare in tons/ha
-
-### Model Features
-
-The models use the following features:
-- **Region**: Algerian region (Wilaya)
-- **Soil Type**: Type of soil (Loam, Clay, Sand, etc.)
-- **Crop**: Crop type
-- **Month**: Planting/harvest month
-- **Year**: Year of planting
-- **Planted Area**: Area in hectares
-- **Temperature**: Average temperature (°C)
-- **Rainfall**: Rainfall in mm
-
-### Training the Model
-
-To train or retrain the model:
+<details open>
+<summary><b>Frontend</b></summary>
 
 ```bash
-cd backend
-python train_model.py
+cd ../frontend
+npm install
+npm run dev        # http://localhost:5173
 ```
 
-This script:
-1. Loads data from `backend/data/agri_dataset.csv`
-2. Preprocesses features (encoding, scaling)
-3. Trains three XGBoost models
-4. Saves the combined model to `backend/models/agri_advisor_v5.pkl`
+</details>
 
-**Note**: Retrain the model whenever you add new data to `agri_dataset.csv`
+<details>
+<summary><b>Environment variables</b></summary>
 
-### Model Output
+<br/>
 
-- **Price Predictor**: Predicted price in DA/kg (model predicts DA/ton, divided by 1000)
-- **Yield**: Predicted yield in tons/ha
-- **Risk**: Oversupply risk percentage (0-100%)
+Create `backend/.env`:
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | For AI advice | Contextual advice generation |
+| `WEATHER_API_KEY` | For live weather | Temperature and rainfall features |
+| `SECRET_KEY` | Production | Django secret |
+| `DEBUG` | Production | Set `False` |
+
+And `frontend/.env`:
+
+| Variable | Purpose |
+|---|---|
+| `VITE_API_URL` | Backend base URL |
+
+> ⚠️ **A `.env` file is currently committed under `frontend/`.** Remove it from the repository, add `.env` to `.gitignore`, and rotate anything it contained.
+
+</details>
 
 ---
 
-## 🗄️ Database Management
+## 📁 Structure
 
-### Database Models
-
-- **User**: Django's built-in user model (email as username)
-- **Region**: Algerian regions (Wilayas) with soil types and coordinates
-- **Farm**: User farms with location, size, soil type, and intended crop
-- **Crop**: Crop information with ideal conditions
-- **SoilData**: Soil test results
-- **WeatherData**: Weather information
-- **MarketData**: Market prices and trends
-
-### Updating Database from CSV
-
-To update regions and crops from CSV files:
-
-```bash
-cd backend
-python manage.py update_from_csv
 ```
-
-This command:
-- Clears existing regions and repopulates from `backend/data/region_soil_mapping.csv`
-- Updates crops from `backend/data/agri_dataset.csv`
-- Maintains data consistency
-
-### Database Migrations
-
-After model changes:
-
-```bash
-python manage.py makemigrations
-python manage.py migrate
-```
-
----
-
-## 🐛 Troubleshooting
-
-### Common Issues and Solutions
-
-1. **Model File Not Found**
-   - **Error**: `FileNotFoundError: models/agri_advisor_v5.pkl`
-   - **Solution**: Run `python train_model.py` to generate the model
-
-2. **CORS Errors**
-   - **Error**: `Access to XMLHttpRequest blocked by CORS policy`
-   - **Solution**: Check `CORS_ALLOWED_ORIGINS` in `backend/core/settings.py`
-   - Add `http://localhost:5173` to allowed origins
-
-3. **Database Errors**
-   - **Error**: `no such table: api_region`
-   - **Solution**: Run `python manage.py migrate`
-
-4. **Port Already in Use**
-   - **Error**: `Address already in use`
-   - **Solution**: 
-     - Backend: Change port with `python manage.py runserver 8001`
-     - Frontend: Change port in `vite.config.js` or use `npm run dev -- --port 5174`
-
-5. **Module Not Found**
-   - **Error**: `ModuleNotFoundError: No module named 'dotenv'`
-   - **Solution**: Install missing package: `pip install python-dotenv`
-
-6. **Geocoding Not Working**
-   - **Error**: Map doesn't show region location
-   - **Solution**: Check internet connection (uses OpenStreetMap Nominatim API)
-   - Ensure User-Agent header is set (already configured)
-
-7. **Translation Not Working**
-   - **Error**: Text not translated
-   - **Solution**: Check `LanguageContext.jsx` for missing translation keys
-   - Ensure language is saved in localStorage
-
----
-
-## 🌐 Language Support
-
-### Supported Languages
-
-- **English** (en): Default language
-- **French** (fr): Complete translation
-- **Arabic** (ar): Full translation with RTL support
-
-### Translation Coverage
-
-All UI elements are translated:
-- Navigation menus
-- Form labels and buttons
-- Error messages
-- Success notifications
-- Region names
-- Crop names
-- Soil types
-- AI-generated advice
-- Confidence levels
-- Recommendation texts
-
-### Adding New Translations
-
-Edit `frontend/src/contexts/LanguageContext.jsx`:
-1. Add translation key to all three language objects (`en`, `fr`, `ar`)
-2. Use `t('key')` in components to display translated text
-
----
-
-## 🧪 Testing
-
-### Backend Testing
-
-```bash
-cd backend
-python manage.py test
-```
-
-### Frontend Linting
-
-```bash
-cd frontend
-npm run lint
+AgroVisor---Algeria-2.0/
+├── backend/
+│   ├── api/
+│   │   ├── models.py                    # User · Farm · Region · Crop
+│   │   ├── views.py  serializers.py  urls.py
+│   │   ├── services/
+│   │   │   ├── model_predictor.py       # Model loading + prediction
+│   │   │   ├── recommendation.py        # Ranking + risk threshold
+│   │   │   ├── ai_advice_generator.py   # OpenAI layer
+│   │   │   └── weather_api.py
+│   │   └── management/commands/         # update_from_csv · seed_regions · seed_data
+│   ├── core/settings.py
+│   ├── data/
+│   │   ├── agri_dataset.csv             # 200k+ training rows
+│   │   └── region_soil_mapping.csv
+│   ├── models/agri_advisor_v5.pkl
+│   └── train_model.py
+├── frontend/
+│   └── src/
+│       ├── pages/                       # Landing · Login · Signup · Dashboard
+│       ├── components/                  # FarmForm · FarmMap · FloatingChatbot · Toast
+│       └── contexts/                    # AuthContext · LanguageContext
+└── data/model_results.csv               # Predictions saved for retraining
 ```
 
 ---
 
-## 📈 Future Enhancements
+## ⚠️ Limitations
 
-- [ ] Historical data tracking and trends
-- [ ] Real-time weather API integration
-- [ ] Mobile app version (React Native)
-- [ ] Advanced analytics dashboard
-- [ ] Export reports to PDF
-- [ ] Email/SMS notification system
-- [ ] Multi-farm comparison tool
-- [ ] Seasonal planning calendar
-- [ ] Integration with IoT sensors
-- [ ] Blockchain-based data verification
+<details>
+<summary><b>What would need to change for production</b></summary>
 
----
+<br/>
 
-## 🤝 Contributing
+- **SQLite** is the default database — fine for a demo, needs PostgreSQL for concurrent writes.
+- **Oversupply risk is derived from a binary classifier's probability**, presented as a percentage. That's a reasonable proxy, but it is not a calibrated market-saturation estimate.
+- **Weather features come from an API at request time** while the model was trained on historical values — worth checking that the distributions match.
+- **No model versioning.** `agri_advisor_v5.pkl` is overwritten on retrain, so a bad training run is not recoverable.
 
-We welcome contributions! Please follow these steps:
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/AmazingFeature`
-3. **Commit your changes**: `git commit -m 'Add some AmazingFeature'`
-4. **Push to the branch**: `git push origin feature/AmazingFeature`
-5. **Open a Pull Request**
-
-### Contribution Guidelines
-
-- Follow the existing code style
-- Add comments for complex logic
-- Update documentation for new features
-- Test your changes thoroughly
-- Ensure translations are added for all languages
+</details>
 
 ---
 
-## 📄 License
+## 🛠️ Stack
 
-This project is part of a hackathon submission. Please refer to the repository for license information.
-
----
-
-## 👥 Authors
-
-- **Development Team** - Initial work and implementation
+**Backend** · Django 5.2 · Django REST Framework · SimpleJWT · django-cors-headers · SQLite · XGBoost · scikit-learn · pandas · joblib · OpenAI · python-dotenv
+**Frontend** · React 19 · Vite · Tailwind CSS 4 · Recharts · Leaflet + react-leaflet · React Router 7 · Axios · Framer Motion · Context API
 
 ---
 
-## 🙏 Acknowledgments
+<div align="center">
 
-- OpenStreetMap for map tiles and geocoding
-- OpenAI for AI advice generation
-- Django and React communities
-- All contributors and testers
+**Ahcene Zakaria Aouanouk** — Data Science & AI student, Algiers
 
----
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/ahcene-zakaria-aouanouk-1126902b7/)
+[![Gmail](https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:zzaouanouk@gmail.com)
 
-**AgroVisor** - Empowering farmers with AI-driven agricultural insights 🌱
-
-For questions or support, please open an issue on GitHub.
+</div>
